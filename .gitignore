@@ -1,0 +1,31 @@
+# Python
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.pyc
+backend/**/*.pyc
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Environment files / secrets
+.env
+.env.*
+backend/.env
+frontend/.env
+
+# Uploaded/generated local data
+backend/uploads/
+backend/data/uploads/
+backend/data/documents.json
+backend/data/chunks.json
+backend/data/logs.json
+backend/data/search_history.json
+backend/data/reviews.json
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
