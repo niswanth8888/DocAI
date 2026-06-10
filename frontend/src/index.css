@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: 'Outfit', sans-serif;
+    @apply bg-[#050505] text-[#F5F5F5] selection:bg-slate-800 selection:text-slate-100;
+  }
+
+  code, pre {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #050505;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2A2A2A;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #333333;
+}
+
+/* Custom Glow Classes (redefined as subtle/flat borders to align with graphite style) */
+.cyan-glow {
+  box-shadow: none;
+}
+
+.violet-glow {
+  box-shadow: none;
+}
+
+.card-glow:hover {
+  box-shadow: none;
+  border-color: #333333;
+}
+
+/* Matte graphite panels */
+.glass-panel {
+  background: #111111;
+  border: 1px solid #2a2a2a;
+}
+
+.glass-panel-accent {
+  background: #141414;
+  border: 1px solid #333333;
+}
+
+.glass-panel-violet {
+  background: #141414;
+  border: 1px solid #333333;
+}
+
+/* Typography styles - Redefined to flat professional colors */
+.gradient-text {
+  @apply text-[#F5F5F5];
+}
+
+.cyan-gradient-text {
+  @apply text-[#F5F5F5];
+}
+
+.violet-gradient-text {
+  @apply text-[#F5F5F5];
+}
