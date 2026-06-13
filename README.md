@@ -1,4 +1,3 @@
-DocAI
 DocAI is an AI-powered enterprise document intelligence platform that turns uploaded company documents into a searchable, citation-backed knowledge base. It helps employees and administrators upload documents, generate structured knowledge, ask document-grounded questions, review low-confidence answers, and maintain cleaner company knowledge.
 DocAI is designed for organizations that manage large volumes of internal documents such as policies, annual reports, manuals, contracts, onboarding files, financial documents, compliance documents, and technical documentation.
 ---
