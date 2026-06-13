@@ -27,9 +27,18 @@ import {
   SystemSettings
 } from '../types/api';
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+const rawBaseUrl =
+  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 
-console.log("DocAI API Base URL:", API_BASE_URL);
+export const API_BASE_URL = rawBaseUrl.replace(/\/$/, "");
+
+if (import.meta.env.PROD && API_BASE_URL.includes("localhost")) {
+  console.error("Invalid production API URL: localhost cannot be used in deployed app");
+}
+
+if (import.meta.env.PROD && API_BASE_URL.includes("127.0.0.1")) {
+  console.error("Invalid production API URL: 127.0.0.1 cannot be used in deployed app");
+}
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -73,6 +82,7 @@ api.interceptors.response.use(
   (error) => {
     if (!error.response) {
       isBackendOnline = false;
+      error.message = "Cannot reach backend. Please check that the backend tunnel is active and VITE_API_BASE_URL is correct.";
     }
     // Only automatically redirect/log out when the /auth/me endpoint specifically returns 401 or 403
     if (error.config && error.config.url && error.config.url.includes('/auth/me')) {
@@ -114,7 +124,6 @@ export async function uploadDocument(file: File): Promise<UploadResponse> {
 
   const response = await api.post<UploadResponse>("/upload", formData, {
     headers: {
-      "Content-Type": "multipart/form-data",
       "ngrok-skip-browser-warning": "true",
     },
     timeout: 180000,
