@@ -24,7 +24,8 @@ import {
 import PageHeader from '../components/PageHeader';
 import TagBadge from '../components/TagBadge';
 import StatusPill from '../components/StatusPill';
-import { uploadDocument, syncUploadsFolder, getDashboard, getFAQs, getTags, getStructuredLogs, getDocuments, patchDocumentMetadata, deleteDocument, API_BASE_URL } from '../api/client';
+import { useAuth } from '../context/AuthContext';
+import { uploadDocument, syncUploadsFolder, getDashboard, getFAQs, getTags, getStructuredLogs, getDocuments, patchDocumentMetadata, deleteDocument, getAdminReviewQueue, approveDocument, rejectDocument, API_BASE_URL } from '../api/client';
 import { UploadResponse, SyncUploadsResponse, DocumentItem } from '../types/api';
 
 const UPLOAD_STEPS = [
@@ -37,6 +38,8 @@ const UPLOAD_STEPS = [
 ];
 
 const UploadKnowledge: React.FC = () => {
+  const { user, role } = useAuth();
+  const isAdmin = role === 'admin';
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState<boolean>(false);
   const [processing, setProcessing] = useState<boolean>(false);
@@ -53,6 +56,20 @@ const UploadKnowledge: React.FC = () => {
   // Document list state
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [loadingDocs, setLoadingDocs] = useState<boolean>(false);
+
+  // Review queue state
+  const [activeTab, setActiveTab] = useState<'library' | 'review'>('library');
+  const [pendingDocs, setPendingDocs] = useState<any[]>([]);
+  const [loadingPending, setLoadingPending] = useState<boolean>(false);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+
+  // Approval form state per doc
+  const [approvalVisibility, setApprovalVisibility] = useState<Record<string, string>>({});
+  const [approvalDepts, setApprovalDepts] = useState<Record<string, string>>({});
+  const [approvalGroups, setApprovalGroups] = useState<Record<string, string>>({});
+  const [approvalAllowDownload, setApprovalAllowDownload] = useState<Record<string, boolean>>({});
+  const [rejectionReasons, setRejectionReasons] = useState<Record<string, string>>({});
 
   // Filters
   const [searchFilter, setSearchFilter] = useState('');
@@ -115,6 +132,74 @@ const UploadKnowledge: React.FC = () => {
     }
     
     return generated.slice(0, 6);
+  };
+
+  const fetchPendingQueue = async () => {
+    if (!isAdmin) return;
+    setLoadingPending(true);
+    try {
+      const res = await getAdminReviewQueue();
+      setPendingDocs(res.documents || []);
+    } catch (err) {
+      console.error('Failed to load pending review queue:', err);
+    } finally {
+      setLoadingPending(false);
+    }
+  };
+
+  const handleApproveDoc = async (documentId: string) => {
+    setApprovingId(documentId);
+    try {
+      const vis = approvalVisibility[documentId] || 'public';
+      const deptsRaw = approvalDepts[documentId] || '';
+      const groupsRaw = approvalGroups[documentId] || '';
+      const allowDl = !!approvalAllowDownload[documentId];
+
+      const allowed_departments = deptsRaw.split(',').map(d => d.trim()).filter(d => d.length > 0);
+      const allowed_groups = groupsRaw.split(',').map(g => g.trim()).filter(g => g.length > 0);
+
+      const allowed_groups_final = (vis === 'public' && allowed_groups.length === 0) ? ['all_employees'] : allowed_groups;
+
+      await approveDocument(documentId, {
+        visibility: vis,
+        allowed_departments,
+        allowed_groups: allowed_groups_final,
+        allow_download: allowDl,
+        download_allowed_roles: ['employee']
+      });
+
+      alert('Document approved successfully.');
+      fetchPendingQueue();
+      fetchDocumentsList();
+    } catch (err: any) {
+      console.error(err);
+      alert(err.response?.data?.detail || err.message || 'Failed to approve document');
+    } finally {
+      setApprovingId(null);
+    }
+  };
+
+  const handleRejectDoc = async (documentId: string) => {
+    const reason = rejectionReasons[documentId] || '';
+    if (!reason.trim()) {
+      alert('Please provide a rejection reason.');
+      return;
+    }
+    setRejectingId(documentId);
+    try {
+      await rejectDocument(documentId, {
+        rejection_reason: reason
+      });
+
+      alert('Document rejected.');
+      fetchPendingQueue();
+      fetchDocumentsList();
+    } catch (err: any) {
+      console.error(err);
+      alert(err.response?.data?.detail || err.message || 'Failed to reject document');
+    } finally {
+      setRejectingId(null);
+    }
   };
 
   const fetchDocumentsList = async () => {
@@ -472,6 +557,16 @@ const UploadKnowledge: React.FC = () => {
 
   // Perform client side filters
   const filteredDocuments = documents.filter((doc) => {
+    // If not admin, restrict to own uploads
+    if (!isAdmin) {
+      const isOwner = user && (
+        (doc.owner_user_id && doc.owner_user_id === user.user_id) ||
+        (doc.owner_username && doc.owner_username === user.username) ||
+        (doc.owner && user.email && doc.owner.toLowerCase() === user.email.toLowerCase())
+      );
+      if (!isOwner) return false;
+    }
+
     const q = searchFilter.toLowerCase();
     const matchesSearch = doc.document.toLowerCase().includes(q) || 
       (doc.department && doc.department.toLowerCase().includes(q)) ||
@@ -497,8 +592,12 @@ const UploadKnowledge: React.FC = () => {
   return (
     <div className="space-y-8 animate-fade-in text-slate-300 font-sans">
       <PageHeader
-        title="Upload Knowledge"
-        description="Ingest company policies, IT resources, onboarding manuals, and corporate procedures directly into the vector database."
+        title={isAdmin ? "Upload Knowledge" : "My Uploads"}
+        description={
+          isAdmin 
+            ? "Ingest company policies, IT resources, onboarding manuals, and corporate procedures directly into the vector database."
+            : "Upload documents for administrator review. Your files will be available for search once approved."
+        }
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -509,6 +608,13 @@ const UploadKnowledge: React.FC = () => {
               <UploadCloud className="w-5 h-5 text-cyan-400" />
               <span>Ingestion Panel</span>
             </h3>
+
+            {!isAdmin && (
+              <div className="mb-4 p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs flex items-start gap-2 leading-relaxed">
+                <Shield className="w-4 h-4 shrink-0 text-blue-400 mt-0.5" />
+                <span>Your document will be submitted for admin review before becoming available in company search.</span>
+              </div>
+            )}
 
             {/* Drag Drop Area */}
             <div
@@ -593,36 +699,38 @@ const UploadKnowledge: React.FC = () => {
           </div>
 
           {/* Sync Uploads Card */}
-          <div className="glass-panel border-[#2A2A2A] bg-[#0d0d0d] border rounded-2xl p-6 relative overflow-hidden shadow-xl">
-            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-              <RefreshCw className="w-5 h-5 text-cyan-400" />
-              <span>Sync Directory</span>
-            </h3>
-            <p className="text-xs text-slate-400 mb-4 font-medium leading-relaxed">
-              Scan `backend/data/uploads` folder for manual file placements and index them into the DocAI Knowledge Base.
-            </p>
-            {syncing && (
-              <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-3 mb-4 animate-pulse">
-                <div className="w-4 h-4 rounded-full border border-t-cyan-400 border-r-transparent border-b-cyan-400 border-l-transparent animate-spin shrink-0" />
-                <span className="text-xs font-semibold text-slate-350">
-                  Scanning uploads folder and indexing new documents...
-                </span>
-              </div>
-            )}
-            {syncError && (
-              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center gap-2 mb-4">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span>{syncError}</span>
-              </div>
-            )}
-            <button
-              onClick={handleSync}
-              disabled={syncing || processing}
-              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-[#111111] border border-[#2A2A2A] hover:bg-slate-950 hover:border-slate-500 text-sm font-bold text-[#F5F5F5] transition-all duration-300 shadow-sm"
-            >
-              {syncing ? 'Syncing...' : 'Sync Uploads Folder'}
-            </button>
-          </div>
+          {isAdmin && (
+            <div className="glass-panel border-[#2A2A2A] bg-[#0d0d0d] border rounded-2xl p-6 relative overflow-hidden shadow-xl">
+              <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                <RefreshCw className="w-5 h-5 text-cyan-400" />
+                <span>Sync Directory</span>
+              </h3>
+              <p className="text-xs text-slate-400 mb-4 font-medium leading-relaxed">
+                Scan `backend/data/uploads` folder for manual file placements and index them into the DocAI Knowledge Base.
+              </p>
+              {syncing && (
+                <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-3 mb-4 animate-pulse">
+                  <div className="w-4 h-4 rounded-full border border-t-cyan-400 border-r-transparent border-b-cyan-400 border-l-transparent animate-spin shrink-0" />
+                  <span className="text-xs font-semibold text-slate-350">
+                    Scanning uploads folder and indexing new documents...
+                  </span>
+                </div>
+              )}
+              {syncError && (
+                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center gap-2 mb-4">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>{syncError}</span>
+                </div>
+              )}
+              <button
+                onClick={handleSync}
+                disabled={syncing || processing}
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-[#111111] border border-[#2A2A2A] hover:bg-slate-950 hover:border-slate-500 text-sm font-bold text-[#F5F5F5] transition-all duration-300 shadow-sm"
+              >
+                {syncing ? 'Syncing...' : 'Sync Uploads Folder'}
+              </button>
+            </div>
+          )}
 
           {/* Ingestion Steps Progress */}
           {processing && (
@@ -1015,161 +1123,450 @@ const UploadKnowledge: React.FC = () => {
       {/* Knowledge Library / Document List */}
       <div className="glass-panel border-[#2A2A2A] bg-[#0d0d0d] border rounded-2xl p-6 relative overflow-hidden shadow-2xl mt-8">
         
-        {/* Table Header Controls */}
+        {/* Table Header Controls / Tabs */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/60 pb-5 mb-5 text-xs">
-          <h3 className="text-lg font-bold text-white flex items-center gap-2">
-            <File className="w-5 h-5 text-cyan-400" />
-            <span>Knowledge Library ({filteredDocuments.length})</span>
-          </h3>
-
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Search Input */}
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
-              <input
-                type="text"
-                value={searchFilter}
-                onChange={(e) => setSearchFilter(e.target.value)}
-                placeholder="Search library..."
-                className="pl-8 pr-3 py-1.5 bg-[#141414] border border-[#2A2A2A] rounded-xl text-white outline-none focus:border-cyan-400 max-w-[160px]"
-              />
+          {isAdmin ? (
+            <div className="flex gap-4 border-b border-transparent">
+              <button
+                onClick={() => setActiveTab('library')}
+                className={`text-lg font-bold pb-2 transition-all flex items-center gap-2 ${
+                  activeTab === 'library'
+                    ? 'text-cyan-400 border-b-2 border-cyan-400'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <File className="w-5 h-5" />
+                <span>Knowledge Library ({filteredDocuments.length})</span>
+              </button>
+              <button
+                onClick={() => {
+                  setActiveTab('review');
+                  fetchPendingQueue();
+                }}
+                className={`text-lg font-bold pb-2 transition-all flex items-center gap-2 relative ${
+                  activeTab === 'review'
+                    ? 'text-cyan-400 border-b-2 border-cyan-400'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Shield className="w-5 h-5" />
+                <span>Review Queue</span>
+                {pendingDocs.length > 0 && (
+                  <span className="ml-1.5 px-1.5 py-0.5 text-[10px] font-extrabold bg-rose-500 text-white rounded-full leading-none shrink-0">
+                    {pendingDocs.length}
+                  </span>
+                )}
+              </button>
             </div>
+          ) : (
+            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              <File className="w-5 h-5 text-cyan-400" />
+              <span>My Uploads ({filteredDocuments.length})</span>
+            </h3>
+          )}
 
-            {/* Status Select */}
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-2 py-1.5 bg-[#141414] border border-[#2A2A2A] rounded-xl text-white outline-none"
-            >
-              <option value="all">All Statuses</option>
-              <option value="processed">Processed</option>
-              <option value="active">Active</option>
-              <option value="outdated">Outdated</option>
-              <option value="archived">Archived</option>
-            </select>
+          {(!isAdmin || activeTab === 'library') && (
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Search Input */}
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+                <input
+                  type="text"
+                  value={searchFilter}
+                  onChange={(e) => setSearchFilter(e.target.value)}
+                  placeholder="Search uploads..."
+                  className="pl-8 pr-3 py-1.5 bg-[#141414] border border-[#2A2A2A] rounded-xl text-white outline-none focus:border-cyan-400 max-w-[160px]"
+                />
+              </div>
 
-            {/* Type Select */}
-            <select
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              className="px-2 py-1.5 bg-[#141414] border border-[#2A2A2A] rounded-xl text-white outline-none"
-            >
-              <option value="all">All Formats</option>
-              <option value="pdf">PDF</option>
-              <option value="docx">DOCX</option>
-              <option value="txt">TXT</option>
-            </select>
+              {/* Status Select */}
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="px-2 py-1.5 bg-[#141414] border border-[#2A2A2A] rounded-xl text-white outline-none"
+              >
+                <option value="all">All Statuses</option>
+                <option value="pending">Pending Review</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+                <option value="archived">Archived</option>
+              </select>
 
+              {/* Type Select */}
+              <select
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value)}
+                className="px-2 py-1.5 bg-[#141414] border border-[#2A2A2A] rounded-xl text-white outline-none"
+              >
+                <option value="all">All Formats</option>
+                <option value="pdf">PDF</option>
+                <option value="docx">DOCX</option>
+                <option value="txt">TXT</option>
+              </select>
+
+              <button
+                onClick={fetchDocumentsList}
+                disabled={loadingDocs}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#141414] hover:bg-[#222222] border border-[#2A2A2A] rounded-xl font-bold text-[#F5F5F5] transition-all"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingDocs ? 'animate-spin' : ''}`} />
+                <span>Reload</span>
+              </button>
+            </div>
+          )}
+
+          {isAdmin && activeTab === 'review' && (
             <button
-              onClick={fetchDocumentsList}
-              disabled={loadingDocs}
+              onClick={fetchPendingQueue}
+              disabled={loadingPending}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-[#141414] hover:bg-[#222222] border border-[#2A2A2A] rounded-xl font-bold text-[#F5F5F5] transition-all"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${loadingDocs ? 'animate-spin' : ''}`} />
-              <span>Reload</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingPending ? 'animate-spin' : ''}`} />
+              <span>Reload Queue</span>
             </button>
-          </div>
+          )}
         </div>
 
-        {loadingDocs ? (
-          <div className="py-8 text-center text-xs text-slate-500 font-semibold">
-            Loading documents list...
-          </div>
-        ) : filteredDocuments.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="border-b border-[#222222] text-slate-500 font-extrabold uppercase tracking-wider">
-                  <th className="py-3 px-4">Document details</th>
-                  <th className="py-3 px-4">Metadata parameters</th>
-                  <th className="py-3 px-4">Deduplication Info</th>
-                  <th className="py-3 px-4">Operational State</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#222222]/40">
-                {filteredDocuments.map((doc) => {
-                  const isDuplicate = doc.duplicate_candidates && doc.duplicate_candidates.length > 0;
-                  return (
-                    <tr key={doc.document_id} className="hover:bg-[#0D0D0D]/40 transition-colors">
-                      {/* Name & Chunks */}
-                      <td className="py-3 px-4">
-                        <p className="font-bold text-slate-200">{doc.document}</p>
-                        <p className="text-[10px] text-slate-500 mt-0.5">
-                          ID: {doc.document_id} • {doc.chunks_count || doc.chunks_created || '-'} Chunks
-                        </p>
-                      </td>
+        {isAdmin && activeTab === 'review' ? (
+          loadingPending ? (
+            <div className="py-8 text-center text-xs text-slate-500 font-semibold">
+              Loading pending review queue...
+            </div>
+          ) : pendingDocs.length > 0 ? (
+            <div className="space-y-6">
+              {pendingDocs.map((doc) => {
+                const docId = doc.document_id;
+                const vis = approvalVisibility[docId] || 'public';
+                const depts = approvalDepts[docId] || '';
+                const groups = approvalGroups[docId] || '';
+                const allowDl = !!approvalAllowDownload[docId];
+                const rejectReason = rejectionReasons[docId] || '';
 
-                      {/* Enterprise Metadata Summary */}
-                      <td className="py-3 px-4">
-                        <div className="space-y-0.5 text-[10px] text-slate-400">
-                          <p><span className="text-slate-500">Dept:</span> {doc.department || 'General'}</p>
-                          <p><span className="text-slate-500">Authority:</span> {doc.authority_level || 'standard'}</p>
-                          {doc.owner && <p className="truncate max-w-[150px]"><span className="text-slate-500">Owner:</span> {doc.owner}</p>}
+                return (
+                  <div key={docId} className="p-5 bg-slate-950/60 rounded-2xl border border-slate-900 space-y-4 hover:border-cyan-500/10 transition-colors">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-900 pb-3">
+                      <div>
+                        <h4 className="text-sm font-bold text-white">{doc.document}</h4>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-slate-500 mt-1 font-medium">
+                          <span>Uploaded by: <strong className="text-slate-350">{doc.owner_username || doc.owner || 'Unknown'}</strong></span>
+                          <span>Dept: <strong className="text-slate-350">{doc.owner_department || 'General'}</strong></span>
+                          <span>Role: <strong className="text-slate-350">{doc.uploaded_by_role || 'employee'}</strong></span>
+                          <span>Date: <strong className="text-slate-350">{doc.uploaded_at ? new Date(doc.uploaded_at).toLocaleString() : '-'}</strong></span>
                         </div>
-                      </td>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/15 font-bold uppercase tracking-wider">
+                          Pending Review
+                        </span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-900 text-slate-400 border border-slate-800 font-semibold">
+                          Vector Status: {doc.vector_status || 'processing'}
+                        </span>
+                      </div>
+                    </div>
 
-                      {/* Deduplication indicators */}
-                      <td className="py-3 px-4">
-                        {isDuplicate ? (
-                          <div className="inline-flex items-center gap-1.5 p-1 px-2.5 rounded bg-amber-950/40 border border-amber-900/40 text-amber-400 font-bold text-[10px]">
-                            <AlertTriangle className="w-3.5 h-3.5" />
-                            <span>Potential Duplicate</span>
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 text-xs">
+                      {/* Configuration panel */}
+                      <div className="lg:col-span-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-slate-400 font-semibold mb-1.5">Visibility Settings</label>
+                          <select
+                            value={vis}
+                            onChange={(e) => setApprovalVisibility({ ...approvalVisibility, [docId]: e.target.value })}
+                            className="w-full px-3 py-2 bg-[#141414] border border-[#2A2A2A] rounded-xl text-white outline-none focus:border-cyan-400"
+                          >
+                            <option value="public" className="bg-[#0d0d0d]">All Employees (Public)</option>
+                            <option value="department" className="bg-[#0d0d0d]">Selected Departments Only</option>
+                            <option value="restricted_groups" className="bg-[#0d0d0d]">Selected Access Groups Only</option>
+                            <option value="admin_only" className="bg-[#0d0d0d]">Admin Only</option>
+                            <option value="private" className="bg-[#0d0d0d]">Private (Uploader & Admin)</option>
+                          </select>
+                        </div>
+
+                        <div className="flex items-center">
+                          <label className="flex items-center gap-2 text-slate-300 font-semibold cursor-pointer mt-4">
+                            <input
+                              type="checkbox"
+                              checked={allowDl}
+                              onChange={(e) => setApprovalAllowDownload({ ...approvalAllowDownload, [docId]: e.target.checked })}
+                              className="rounded border-[#2A2A2A] bg-[#141414] text-cyan-400 focus:ring-0 w-4 h-4"
+                            />
+                            <span>Allow Document Download</span>
+                          </label>
+                        </div>
+
+                        {vis === 'department' && (
+                          <div className="sm:col-span-2">
+                            <label className="block text-slate-400 font-semibold mb-1.5">
+                              Allowed Departments (comma-separated)
+                            </label>
+                            <input
+                              type="text"
+                              value={depts}
+                              onChange={(e) => setApprovalDepts({ ...approvalDepts, [docId]: e.target.value })}
+                              placeholder="e.g. Engineering, HR, Sales"
+                              className="w-full px-3 py-2 bg-[#141414] border border-[#2A2A2A] rounded-xl text-white outline-none focus:border-cyan-400"
+                            />
                           </div>
-                        ) : (
-                          <span className="text-[10px] text-slate-600 font-semibold">Unique document</span>
                         )}
-                      </td>
 
-                      {/* Status & Upload Date */}
-                      <td className="py-3 px-4">
-                        <StatusPill status={doc.status || 'processed'} />
-                        <p className="text-[10px] text-slate-500 mt-1 font-medium">
-                          {doc.uploaded_at ? new Date(doc.uploaded_at).toLocaleDateString() : '-'}
-                        </p>
-                      </td>
+                        {vis === 'restricted_groups' && (
+                          <div className="sm:col-span-2">
+                            <label className="block text-slate-400 font-semibold mb-1.5">
+                              Allowed Access Groups (comma-separated)
+                            </label>
+                            <input
+                              type="text"
+                              value={groups}
+                              onChange={(e) => setApprovalGroups({ ...approvalGroups, [docId]: e.target.value })}
+                              placeholder="e.g. executives, managers, compliance-officers"
+                              className="w-full px-3 py-2 bg-[#141414] border border-[#2A2A2A] rounded-xl text-white outline-none focus:border-cyan-400"
+                            />
+                          </div>
+                        )}
+                      </div>
 
-                      {/* Action buttons */}
-                      <td className="py-3 px-4 text-right">
-                        <div className="flex justify-end gap-2 items-center">
+                      {/* Execution Actions panel */}
+                      <div className="lg:col-span-4 flex flex-col justify-between border-t lg:border-t-0 lg:border-l border-slate-900 pt-4 lg:pt-0 lg:pl-6 space-y-4">
+                        <div className="space-y-3">
                           <button
-                            onClick={() => startEditMetadata(doc)}
-                            className="p-1.5 rounded bg-[#141414] hover:bg-[#222222] border border-[#2A2A2A] text-slate-400 hover:text-white"
-                            title="Edit enterprise metadata"
+                            onClick={() => handleApproveDoc(docId)}
+                            disabled={approvingId === docId || rejectingId === docId}
+                            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-white hover:bg-slate-200 text-black font-bold text-xs transition-all disabled:opacity-50"
                           >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-                          
-                          <a
-                            href={`${API_BASE_URL}/documents/${doc.document_id}/download`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            download
-                            className="p-1.5 rounded bg-[#141414] hover:bg-[#222222] border border-[#2A2A2A] text-[#F5F5F5] transition-all"
-                            title="Download document file"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                          </a>
-
-                          <button
-                            onClick={() => handleDeleteDocument(doc.document_id, doc.document)}
-                            className="p-1.5 rounded bg-[#141414] hover:bg-rose-950/40 border border-[#2A2A2A] hover:border-rose-900/40 text-slate-405 hover:text-rose-400 transition-colors"
-                            title="Delete document and purge all associated data"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            {approvingId === docId ? 'Approving...' : 'Approve & Publish'}
                           </button>
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+
+                        <div className="space-y-2.5 pt-2">
+                          <label className="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                            Reject Document
+                          </label>
+                          <input
+                            type="text"
+                            value={rejectReason}
+                            onChange={(e) => setRejectionReasons({ ...rejectionReasons, [docId]: e.target.value })}
+                            placeholder="Reason for rejection..."
+                            className="w-full px-3 py-2 bg-[#141414] border border-[#2A2A2A] rounded-xl text-white outline-none focus:border-rose-500 text-xs"
+                          />
+                          <button
+                            onClick={() => handleRejectDoc(docId)}
+                            disabled={approvingId === docId || rejectingId === docId}
+                            className="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-xl bg-rose-955/20 border border-rose-900/30 hover:bg-rose-900/30 text-rose-400 font-bold text-xs transition-all disabled:opacity-50"
+                          >
+                            {rejectingId === docId ? 'Rejecting...' : 'Reject Document'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="py-8 text-center text-xs text-slate-500 font-semibold italic">
+              All employee uploads have been reviewed. Queue is empty.
+            </div>
+          )
         ) : (
-          <div className="py-8 text-center text-xs text-slate-500 font-semibold italic">
-            No matching documents found in library.
-          </div>
+          /* Knowledge Library / "My Uploads" Table */
+          loadingDocs ? (
+            <div className="py-8 text-center text-xs text-slate-500 font-semibold">
+              Loading documents list...
+            </div>
+          ) : filteredDocuments.length > 0 ? (
+            isAdmin ? (
+              /* Admin Library Table */
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-[#222222] text-slate-500 font-extrabold uppercase tracking-wider">
+                      <th className="py-3 px-4">Document details</th>
+                      <th className="py-3 px-4">Metadata parameters</th>
+                      <th className="py-3 px-4">Deduplication Info</th>
+                      <th className="py-3 px-4">Operational State</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#222222]/40">
+                    {filteredDocuments.map((doc) => {
+                      const isDuplicate = doc.duplicate_candidates && doc.duplicate_candidates.length > 0;
+                      return (
+                        <tr key={doc.document_id} className="hover:bg-[#0D0D0D]/40 transition-colors">
+                          {/* Name & Chunks */}
+                          <td className="py-3 px-4">
+                            <p className="font-bold text-slate-200">{doc.document}</p>
+                            <p className="text-[10px] text-slate-500 mt-0.5">
+                              ID: {doc.document_id} • {doc.chunks_count || doc.chunks_created || '-'} Chunks
+                            </p>
+                          </td>
+
+                          {/* Enterprise Metadata Summary */}
+                          <td className="py-3 px-4">
+                            <div className="space-y-0.5 text-[10px] text-slate-400">
+                              <p><span className="text-slate-500">Dept:</span> {doc.department || 'General'}</p>
+                              <p><span className="text-slate-500">Authority:</span> {doc.authority_level || 'standard'}</p>
+                              {doc.owner && <p className="truncate max-w-[150px]"><span className="text-slate-500">Owner:</span> {doc.owner}</p>}
+                            </div>
+                          </td>
+
+                          {/* Deduplication indicators */}
+                          <td className="py-3 px-4">
+                            {isDuplicate ? (
+                              <div className="inline-flex items-center gap-1.5 p-1 px-2.5 rounded bg-amber-950/40 border border-amber-900/40 text-amber-400 font-bold text-[10px]">
+                                <AlertTriangle className="w-3.5 h-3.5" />
+                                <span>Potential Duplicate</span>
+                              </div>
+                            ) : (
+                              <span className="text-[10px] text-slate-600 font-semibold">Unique document</span>
+                            )}
+                          </td>
+
+                          {/* Status & Upload Date */}
+                          <td className="py-3 px-4">
+                            <div className="space-y-1">
+                              <StatusPill status={doc.status || 'processed'} />
+                              {doc.status === 'rejected' && doc.rejection_reason && (
+                                <p className="text-[9px] text-rose-450 max-w-[150px] truncate" title={doc.rejection_reason}>
+                                  Reason: {doc.rejection_reason}
+                                </p>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-slate-550 mt-1 font-medium">
+                              {doc.uploaded_at ? new Date(doc.uploaded_at).toLocaleDateString() : '-'}
+                            </p>
+                          </td>
+
+                          {/* Action buttons */}
+                          <td className="py-3 px-4 text-right">
+                            <div className="flex justify-end gap-2 items-center">
+                              <button
+                                onClick={() => startEditMetadata(doc)}
+                                className="p-1.5 rounded bg-[#141414] hover:bg-[#222222] border border-[#2A2A2A] text-slate-400 hover:text-white"
+                                title="Edit enterprise metadata"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              
+                              <a
+                                href={`${API_BASE_URL}/documents/${doc.document_id}/download`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                download
+                                className="p-1.5 rounded bg-[#141414] hover:bg-[#222222] border border-[#2A2A2A] text-[#F5F5F5] transition-all"
+                                title="Download document file"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                              </a>
+
+                              <button
+                                onClick={() => handleDeleteDocument(doc.document_id, doc.document)}
+                                className="p-1.5 rounded bg-[#141414] hover:bg-rose-950/40 border border-[#2A2A2A] hover:border-rose-900/40 text-slate-405 hover:text-rose-400 transition-colors"
+                                title="Delete document and purge all associated data"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              /* Employee uploads Table */
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-[#222222] text-slate-500 font-extrabold uppercase tracking-wider">
+                      <th className="py-3 px-4">Document Details</th>
+                      <th className="py-3 px-4">Upload Date</th>
+                      <th className="py-3 px-4">Access Rights</th>
+                      <th className="py-3 px-4">Review Status</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#222222]/40">
+                    {filteredDocuments.map((doc) => {
+                      const isPending = (doc.status || '').toLowerCase() === 'pending';
+                      const isRejected = (doc.status || '').toLowerCase() === 'rejected';
+
+                      return (
+                        <tr key={doc.document_id} className="hover:bg-[#0D0D0D]/40 transition-colors">
+                          {/* Document Details */}
+                          <td className="py-3 px-4">
+                            <p className="font-bold text-slate-200">{doc.document}</p>
+                            <p className="text-[10px] text-slate-500 mt-0.5">
+                              ID: {doc.document_id} • {doc.chunks_count || doc.chunks_created || '-'} Chunks
+                            </p>
+                          </td>
+
+                          {/* Upload Date */}
+                          <td className="py-3 px-4">
+                            <p className="text-slate-350">
+                              {doc.uploaded_at ? new Date(doc.uploaded_at).toLocaleDateString() : '-'}
+                            </p>
+                          </td>
+
+                          {/* Access Rights */}
+                          <td className="py-3 px-4">
+                            <div className="space-y-0.5 text-[10px] text-slate-400">
+                              <p><span className="text-slate-505">Visibility:</span> <span className="capitalize">{doc.visibility || 'private'}</span></p>
+                              <p><span className="text-slate-505">Downloadable:</span> {doc.allow_download ? 'Yes' : 'No'}</p>
+                            </div>
+                          </td>
+
+                          {/* Review Status */}
+                          <td className="py-3 px-4">
+                            <div className="space-y-1">
+                              <StatusPill status={doc.status || 'pending'} />
+                              {isRejected && doc.rejection_reason && (
+                                <p className="text-[10px] text-rose-455 font-medium max-w-[200px]" title={doc.rejection_reason}>
+                                  Reason: {doc.rejection_reason}
+                                </p>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Actions */}
+                          <td className="py-3 px-4 text-right">
+                            <div className="flex justify-end gap-2 items-center">
+                              <a
+                                href={`${API_BASE_URL}/documents/${doc.document_id}/download`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                download
+                                className="p-1.5 rounded bg-[#141414] hover:bg-[#222222] border border-[#2A2A2A] text-[#F5F5F5] transition-all"
+                                title="Download document file"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                              </a>
+
+                              {isPending ? (
+                                <button
+                                  onClick={() => handleDeleteDocument(doc.document_id, doc.document)}
+                                  className="p-1.5 rounded bg-[#141414] hover:bg-rose-955/40 border border-[#2A2A2A] hover:border-rose-900/40 text-slate-400 hover:text-rose-450 transition-colors"
+                                  title="Delete pending document"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              ) : (
+                                <span className="text-[10px] text-slate-600 italic select-none px-2 font-medium">Locked</span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )
+          ) : (
+            <div className="py-8 text-center text-xs text-slate-500 font-semibold italic">
+              No matching documents found in library.
+            </div>
+          )
         )}
       </div>
     </div>

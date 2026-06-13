@@ -21,6 +21,7 @@ import StatusPill from '../components/StatusPill';
 import { askQuestion, getDocuments, API_BASE_URL } from '../api/client';
 import { AskResponse, SourceCitation, DocumentItem } from '../types/api';
 import { formatPercent, formatLabel } from '../utils/formatters';
+import { useAuth } from '../context/AuthContext';
 
 const SAMPLE_QUESTIONS = [
   'What is the leave approval process?',
@@ -91,7 +92,112 @@ function parseOverview(answer: string): ParsedOverview {
   return sections;
 }
 
+const renderInlineMarkdown = (text: string) => {
+  const regex = /(\*\*.*?\*\*|`.*?`)/g;
+  const parts = text.split(regex);
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={i} className="text-white font-extrabold">{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith('`') && part.endsWith('`')) {
+      return <code key={i} className="px-1.5 py-0.5 rounded bg-slate-900 text-cyan-400 font-mono text-xs">{part.slice(1, -1)}</code>;
+    }
+    return part;
+  });
+};
+
+const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
+  if (!content) return null;
+
+  const parts = content.split(/(```[\s\S]*?```)/g);
+
+  return (
+    <div className="space-y-4 text-slate-100 text-sm md:text-base leading-relaxed">
+      {parts.map((part, index) => {
+        if (part.startsWith('```') && part.endsWith('```')) {
+          const lines = part.slice(3, -3).trim().split('\n');
+          let language = 'text';
+          let code = part.slice(3, -3).trim();
+          if (lines.length > 0 && !lines[0].includes(' ') && lines[0].length < 15) {
+            language = lines[0].toLowerCase();
+            code = lines.slice(1).join('\n');
+          }
+          return (
+            <div key={index} className="my-4 rounded-xl overflow-hidden border border-slate-800 bg-[#0B0F19] text-xs font-mono">
+              <div className="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800/60 text-slate-400">
+                <span className="uppercase text-[10px] font-extrabold tracking-wider">{language}</span>
+                <button
+                  onClick={() => navigator.clipboard.writeText(code)}
+                  className="hover:text-cyan-400 transition-colors text-[10px] font-bold"
+                >
+                  Copy
+                </button>
+              </div>
+              <pre className="p-4 overflow-x-auto text-slate-350">
+                <code>{code}</code>
+              </pre>
+            </div>
+          );
+        } else {
+          const paragraphs = part.split('\n\n');
+          return paragraphs.map((para, pIdx) => {
+            const trimmedPara = para.trim();
+            if (!trimmedPara) return null;
+
+            if (trimmedPara.startsWith('## ')) {
+              return (
+                <h2 key={`${index}-${pIdx}`} className="text-lg md:text-xl font-bold text-white border-b border-slate-800/65 pb-1 mt-6 mb-3">
+                  {renderInlineMarkdown(trimmedPara.replace(/^##\s+/, ''))}
+                </h2>
+              );
+            }
+            if (trimmedPara.startsWith('### ')) {
+              return (
+                <h3 key={`${index}-${pIdx}`} className="text-base md:text-lg font-semibold text-cyan-400 mt-4 mb-2">
+                  {renderInlineMarkdown(trimmedPara.replace(/^###\s+/, ''))}
+                </h3>
+              );
+            }
+            if (trimmedPara.startsWith('#### ')) {
+              return (
+                <h4 key={`${index}-${pIdx}`} className="text-sm md:text-base font-semibold text-slate-200 mt-3 mb-1">
+                  {renderInlineMarkdown(trimmedPara.replace(/^####\s+/, ''))}
+                </h4>
+              );
+            }
+
+            const lines = trimmedPara.split('\n');
+            const isList = lines.every(line => /^\s*([\*\-•]|\d+\.)\s+/.test(line));
+            if (isList) {
+              return (
+                <ul key={`${index}-${pIdx}`} className="list-disc pl-5 space-y-1.5 my-3 text-slate-350">
+                  {lines.map((line, lIdx) => {
+                    const cleanLine = line.replace(/^\s*([\*\-•]|\d+\.)\s+/, '');
+                    return (
+                      <li key={lIdx}>
+                        {renderInlineMarkdown(cleanLine)}
+                      </li>
+                    );
+                  })}
+                </ul>
+              );
+            }
+
+            return (
+              <p key={`${index}-${pIdx}`} className="leading-relaxed text-slate-300 font-medium">
+                {renderInlineMarkdown(trimmedPara)}
+              </p>
+            );
+          });
+        }
+      })}
+    </div>
+  );
+};
+
 const AskAgent: React.FC = () => {
+  const { role } = useAuth();
+  const isAdmin = role === 'admin';
   const [question, setQuestion] = useState<string>('');
   const [selectedMode, setSelectedMode] = useState<string>('detailed');
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
@@ -101,6 +207,7 @@ const AskAgent: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState<boolean>(false);
   const [activeCitation, setActiveCitation] = useState<SourceCitation | null>(null);
+  const [showAllEvidence, setShowAllEvidence] = useState<boolean>(false);
 
   useEffect(() => {
     const fetchDocs = async () => {
@@ -117,6 +224,7 @@ const AskAgent: React.FC = () => {
   const handleSearch = async (queryText: string, modeOverride?: string) => {
     if (!queryText.trim()) return;
 
+    setShowAllEvidence(false);
     setLoading(true);
     setError(null);
     setQuestion(queryText);
@@ -168,6 +276,13 @@ const AskAgent: React.FC = () => {
             </p>
           </div>
 
+          {!isAdmin && !documentsList.some(doc => (doc.status || '').toLowerCase() === 'approved') && (
+            <div className="mb-4 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs flex items-start gap-2.5 leading-relaxed">
+              <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400 mt-0.5 animate-pulse" />
+              <span>No approved documents are currently available in the corporate library. You will not be able to ask questions until a document has been uploaded and approved by an administrator.</span>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
             {/* Answer Mode Selector */}
             <div className="flex flex-col gap-2">
@@ -203,15 +318,18 @@ const AskAgent: React.FC = () => {
               <select
                 value={selectedDocumentId || ''}
                 onChange={(e) => setSelectedDocumentId(e.target.value || null)}
-                disabled={loading}
-                className="bg-[#0D0D0D] border border-[#222222] text-[#9F9F9F] rounded-lg text-xs font-semibold px-3 py-2 outline-none focus:border-[#444444] w-full h-[38px] transition-all"
+                disabled={loading || (!isAdmin && !documentsList.some(doc => (doc.status || '').toLowerCase() === 'approved'))}
+                className="bg-[#0D0D0D] border border-[#222222] text-[#9F9F9F] rounded-lg text-xs font-semibold px-3 py-2 outline-none focus:border-[#444444] w-full h-[38px] transition-all disabled:opacity-50"
               >
                 <option value="">All Documents</option>
-                {documentsList.map((doc) => (
-                  <option key={doc.document_id} value={doc.document_id}>
-                    {doc.document}
-                  </option>
-                ))}
+                {documentsList
+                  .filter(doc => isAdmin || (doc.status || '').toLowerCase() === 'approved')
+                  .map((doc) => (
+                    <option key={doc.document_id} value={doc.document_id}>
+                      {doc.document}
+                    </option>
+                  ))
+                }
               </select>
             </div>
           </div>
@@ -224,12 +342,12 @@ const AskAgent: React.FC = () => {
               onChange={(e) => setQuestion(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch(question)}
               placeholder="e.g. Can employees take leave without approval?"
-              disabled={loading}
-              className="flex-1 bg-transparent border-0 outline-none text-sm text-slate-100 placeholder-slate-500 w-full"
+              disabled={loading || (!isAdmin && !documentsList.some(doc => (doc.status || '').toLowerCase() === 'approved'))}
+              className="flex-1 bg-transparent border-0 outline-none text-sm text-slate-100 placeholder-slate-500 w-full disabled:cursor-not-allowed"
             />
             <button
               onClick={() => handleSearch(question)}
-              disabled={loading || !question.trim()}
+              disabled={loading || !question.trim() || (!isAdmin && !documentsList.some(doc => (doc.status || '').toLowerCase() === 'approved'))}
               className="py-2.5 px-6 rounded-lg bg-[#181818] hover:bg-[#222222] border border-[#333333] hover:border-[#444444] disabled:from-slate-900 disabled:to-slate-900 disabled:text-slate-500 disabled:cursor-not-allowed text-xs font-bold text-[#F5F5F5] transition-all duration-300 flex items-center gap-2"
             >
               <span>Ask DocAI</span>
@@ -546,15 +664,15 @@ const AskAgent: React.FC = () => {
                             <span className="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider">
                               Synthesized Grounded Answer
                             </span>
-                            <p className="text-sm md:text-base text-slate-100 font-medium leading-relaxed whitespace-pre-wrap">
-                              {response.answer}
-                            </p>
+                            <div className="text-slate-100 font-medium">
+                              <MarkdownRenderer content={response.answer} />
+                            </div>
                           </div>
                         )}
                       </div>
  
                       {/* Download Source Document Button */}
-                      {(response.primary_document_id || (response.sources && response.sources.length > 0)) && (
+                      {response.can_download_document && response.download_url && (
                         <div className="pt-2">
                           <a
                             href={`${API_BASE_URL}/documents/${response.primary_document_id || response.sources[0].document_id}/download`}
@@ -607,59 +725,100 @@ const AskAgent: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Sources / Citations Split List */}
-                <div className="space-y-6">
-                  {/* Supporting Citations */}
-                  {response.supporting_citations && response.supporting_citations.length > 0 ? (
-                    <div className="space-y-3">
-                      <h3 className="text-sm font-extrabold uppercase text-emerald-400 tracking-wider flex items-center gap-2">
-                        <ShieldCheck className="w-4.5 h-4.5 text-emerald-400" />
-                        <span>Grounded Supporting Evidence ({response.supporting_citations.length})</span>
-                      </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {response.supporting_citations.map((src, i) => (
-                          <SourceCard key={i} source={src} onOpenLocation={(s) => { setActiveCitation(s); setModalOpen(true); }} />
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
+                {/* Unified Grounded Evidence Section */}
+                {(() => {
+                  const allCitations = [
+                    ...(response.supporting_citations || []),
+                    ...(response.related_sources || []),
+                    ...(response.sources || [])
+                  ];
+                  
+                  // Filter out duplicate chunks by chunk_id
+                  const uniqueCitations: typeof allCitations = [];
+                  const seenChunkIds = new Set<string>();
+                  for (const cit of allCitations) {
+                    if (!cit.chunk_id || !seenChunkIds.has(cit.chunk_id)) {
+                      if (cit.chunk_id) seenChunkIds.add(cit.chunk_id);
+                      uniqueCitations.push(cit);
+                    }
+                  }
 
-                  {/* Related Sources */}
-                  {response.related_sources && response.related_sources.length > 0 ? (
-                    <div className="space-y-3">
-                      <h3 className="text-sm font-extrabold uppercase text-slate-400 tracking-wider flex items-center gap-2">
-                        <Layers className="w-4.5 h-4.5 text-slate-400" />
-                        <span>Related Sources / General Context ({response.related_sources.length})</span>
-                      </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {response.related_sources.map((src, i) => (
-                          <SourceCard key={i} source={src} onOpenLocation={(s) => { setActiveCitation(s); setModalOpen(true); }} />
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {/* Fallback if neither list exists */}
-                  {(!response.supporting_citations && !response.related_sources) && (
-                    <div className="space-y-4">
-                      <h3 className="text-base font-bold text-white tracking-wide flex items-center gap-2">
-                        <Layers className="w-4 h-4 text-cyan-400" />
-                        <span>Source Citations ({response.sources.length})</span>
-                      </h3>
-                      {response.sources.length > 0 ? (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {response.sources.map((src, i) => (
-                            <SourceCard key={i} source={src} onOpenLocation={(s) => { setActiveCitation(s); setModalOpen(true); }} />
-                          ))}
-                        </div>
-                      ) : (
+                  if (uniqueCitations.length === 0) {
+                    return (
+                      <div className="space-y-4">
+                        <h3 className="text-sm font-extrabold uppercase text-slate-400 tracking-wider flex items-center gap-2">
+                          <Layers className="w-4.5 h-4.5 text-cyan-400" />
+                          <span>Source Citations</span>
+                        </h3>
                         <div className="p-4 rounded-xl bg-slate-900/40 border border-slate-800/60 text-xs text-slate-400 font-semibold italic text-center">
                           No source citations returned. This query was answered from general parametric reasoning or flagged for review.
                         </div>
+                      </div>
+                    );
+                  }
+
+                  // Sort citations: strongest first (similarity_score descending)
+                  const sortedCitations = [...uniqueCitations].sort(
+                    (a, b) => (b.similarity_score || 0) - (a.similarity_score || 0)
+                  );
+
+                  // Strong citations (score >= 0.50)
+                  const strongCitations = sortedCitations.filter(c => (c.similarity_score || 0) >= 0.50);
+                  const weakCitations = sortedCitations.filter(c => (c.similarity_score || 0) < 0.50);
+
+                  // Show top 3 strong ones by default
+                  const initialCitations = strongCitations.slice(0, 3);
+                  const hiddenCitations = [...strongCitations.slice(3), ...weakCitations];
+
+                  return (
+                    <div className="space-y-4">
+                      <h3 className="text-sm font-extrabold uppercase text-slate-400 tracking-wider flex items-center gap-2">
+                        <ShieldCheck className="w-4.5 h-4.5 text-cyan-400" />
+                        <span>Grounded Document Evidence ({uniqueCitations.length})</span>
+                      </h3>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {initialCitations.map((src, i) => (
+                          <SourceCard
+                            key={`initial-${i}`}
+                            source={src}
+                            onOpenLocation={(s) => { setActiveCitation(s); setModalOpen(true); }}
+                          />
+                        ))}
+
+                        {showAllEvidence && hiddenCitations.map((src, i) => (
+                          <SourceCard
+                            key={`hidden-${i}`}
+                            source={src}
+                            onOpenLocation={(s) => { setActiveCitation(s); setModalOpen(true); }}
+                          />
+                        ))}
+                      </div>
+
+                      {hiddenCitations.length > 0 && !showAllEvidence && (
+                        <div className="flex justify-center pt-2">
+                          <button
+                            onClick={() => setShowAllEvidence(true)}
+                            className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-bold text-cyan-400 transition-all duration-300"
+                          >
+                            Show more evidence ({hiddenCitations.length})
+                          </button>
+                        </div>
+                      )}
+
+                      {showAllEvidence && hiddenCitations.length > 0 && (
+                        <div className="flex justify-center pt-2">
+                          <button
+                            onClick={() => setShowAllEvidence(false)}
+                            className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-bold text-slate-400 transition-all duration-300"
+                          >
+                            Show less evidence
+                          </button>
+                        </div>
                       )}
                     </div>
-                  )}
-                </div>
+                  );
+                })()}
               </>
             )}
 

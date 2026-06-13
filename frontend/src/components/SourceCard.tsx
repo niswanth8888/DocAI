@@ -104,16 +104,18 @@ const SourceCard: React.FC<SourceCardProps> = ({ source, onOpenLocation }) => {
             </button>
           )}
         </div>
-        <a
-          href={downloadUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          download
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#181818] hover:bg-[#222222] border border-[#2A2A2A] rounded-lg text-xs font-bold text-[#F5F5F5] transition-all duration-300"
-        >
-          <Download className="w-3.5 h-3.5" />
-          <span>Download Original</span>
-        </a>
+        {source.can_download !== false && source.download_url && (
+          <a
+            href={downloadUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            download
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#181818] hover:bg-[#222222] border border-[#2A2A2A] rounded-lg text-xs font-bold text-[#F5F5F5] transition-all duration-300"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Download Original</span>
+          </a>
+        )}
       </div>
     </div>
   );

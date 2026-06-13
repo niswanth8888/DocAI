@@ -55,6 +55,7 @@ export interface SourceCitation {
   evidence_match_score?: number | null;
   quoted_evidence?: string | null;
   citation_type?: string | null;
+  can_download?: boolean;
 }
 
 export interface AskResponse {
@@ -82,6 +83,7 @@ export interface AskResponse {
   related_sources?: SourceCitation[];
   evidence_line_ranges?: string[];
   section_found?: string | null;
+  can_download_document?: boolean;
 }
 
 export interface DocumentItem {
@@ -106,6 +108,14 @@ export interface DocumentItem {
   conflict_candidates?: string[];
   last_reviewed_at?: string | null;
   expiry_warning?: string | null;
+  owner_user_id?: string;
+  owner_username?: string;
+  visibility?: string;
+  allowed_departments?: string[];
+  allowed_groups?: string[];
+  allow_download?: boolean;
+  download_allowed_roles?: string[];
+  rejection_reason?: string | null;
 }
 
 export interface DocumentsListResponse {

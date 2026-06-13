@@ -9,7 +9,7 @@ const StatusPill: React.FC<StatusPillProps> = ({ status }) => {
   const getStyles = () => {
     const s = (status || '').toLowerCase();
     
-    if (s.includes('processed') || s.includes('stored') || s.includes('healthy') || s.includes('completed') || s.includes('active') || s.includes('ready')) {
+    if (s.includes('processed') || s.includes('stored') || s.includes('healthy') || s.includes('completed') || s.includes('active') || s.includes('ready') || s.includes('approved')) {
       return {
         bg: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25',
         icon: CheckCircle2
@@ -27,6 +27,13 @@ const StatusPill: React.FC<StatusPillProps> = ({ status }) => {
       return {
         bg: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/25 animate-pulse',
         icon: Play
+      };
+    }
+
+    if (s.includes('rejected') || s.includes('failed') || s.includes('error')) {
+      return {
+        bg: 'bg-rose-500/10 text-rose-400 border-rose-500/25',
+        icon: AlertTriangle
       };
     }
 

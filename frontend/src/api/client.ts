@@ -551,6 +551,35 @@ export async function deleteDocument(documentId: string): Promise<{ status: stri
   return res.data;
 }
 
+export async function getAdminReviewQueue(): Promise<{ documents: any[]; count: number }> {
+  const res = await api.get<{ documents: any[]; count: number }>("/admin/review-queue");
+  return res.data;
+}
+
+export async function approveDocument(
+  documentId: string,
+  payload: {
+    visibility: string;
+    allowed_departments: string[];
+    allowed_groups: string[];
+    allow_download: boolean;
+    download_allowed_roles: string[];
+  }
+): Promise<any> {
+  const res = await api.patch(`/admin/documents/${documentId}/approve`, payload);
+  return res.data;
+}
+
+export async function rejectDocument(
+  documentId: string,
+  payload: {
+    rejection_reason: string;
+  }
+): Promise<any> {
+  const res = await api.patch(`/admin/documents/${documentId}/reject`, payload);
+  return res.data;
+}
+
 export async function deleteFAQs(documentId: string): Promise<{ status: string; message: string }> {
   const res = await api.delete<{ status: string; message: string }>(`/faqs/${documentId}`);
   return res.data;
