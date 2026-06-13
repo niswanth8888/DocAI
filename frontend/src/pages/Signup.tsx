@@ -57,11 +57,13 @@ const Signup: React.FC = () => {
     try {
       await signup({
         name: name.trim(),
+        full_name: name.trim(),
         username: finalUsername,
-        email: email.trim() || undefined,
+        email: email.trim(),
         password,
         department,
-        designation: designation.trim()
+        designation: designation.trim(),
+        title: designation.trim()
       });
       navigate('/');
     } catch (err: any) {
@@ -132,7 +134,7 @@ const Signup: React.FC = () => {
           <div>
             <label className="block text-slate-400 font-semibold mb-1.5 flex items-center gap-1.5">
               <Mail className="w-3.5 h-3.5 text-slate-500" />
-              <span>Email Address (Optional)</span>
+              <span>Email Address</span>
             </label>
             <input
               type="email"
@@ -140,6 +142,7 @@ const Signup: React.FC = () => {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="niswanth@example.com"
               className="w-full px-4 py-2.5 bg-[#141414] border border-[#2A2A2A] rounded-xl text-white outline-none focus:border-cyan-400 transition-colors"
+              required
             />
           </div>
 

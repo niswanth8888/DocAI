@@ -42,12 +42,19 @@ export interface SourceCitation {
   document_id: string;
   document: string;
   page: number;
+  page_number?: number | null;
   chunk_id: string;
   similarity_score: number;
   evidence: string;
   citation_relevance_score?: number;
   citation_support_summary?: string;
   download_url?: string;
+  section_heading?: string | null;
+  line_start?: number | null;
+  line_end?: number | null;
+  evidence_match_score?: number | null;
+  quoted_evidence?: string | null;
+  citation_type?: string | null;
 }
 
 export interface AskResponse {
@@ -64,6 +71,17 @@ export interface AskResponse {
   primary_document_id?: string;
   primary_document?: string;
   download_url?: string;
+  exact_match_found?: boolean;
+  related_documents?: { document_id: string; document: string; download_url?: string }[];
+  missing_source?: boolean;
+  reliability_warning?: string | null;
+  query_intent?: string | null;
+  answer_status?: string | null;
+  reliability_score?: number | null;
+  supporting_citations?: SourceCitation[];
+  related_sources?: SourceCitation[];
+  evidence_line_ranges?: string[];
+  section_found?: string | null;
 }
 
 export interface DocumentItem {
@@ -279,15 +297,20 @@ export interface KnowledgeGapsResponse {
 export interface UserProfile {
   user_id: string;
   name: string;
+  full_name?: string;
   username: string;
   email: string;
   role: 'user' | 'admin';
   department: string;
   designation: string;
+  title?: string;
   status: 'active' | 'disabled';
+  is_active?: boolean;
   created_at: string;
   updated_at: string;
   last_login_at: string | null;
+  last_login?: string | null;
+  must_change_password?: boolean;
   avatar_initials: string;
 }
 
@@ -381,3 +404,13 @@ export interface AdminAnalyticsResponse {
     dismissed: number;
   };
 }
+
+export interface SystemSettings {
+  selected_model: string;
+  temperature: number;
+  chunk_size: number;
+  chunk_overlap: number;
+  updated_at?: string | null;
+  updated_by?: string | null;
+}
+

@@ -23,7 +23,8 @@ import {
   DownloadHistoryItem,
   UserActivityItem,
   AdminDashboardStats,
-  AdminAnalyticsResponse
+  AdminAnalyticsResponse,
+  SystemSettings
 } from '../types/api';
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
@@ -349,6 +350,11 @@ export async function changePassword(payload: any): Promise<any> {
   return res.data;
 }
 
+export async function patchProfileCredentials(payload: any): Promise<UserProfile> {
+  const res = await api.patch<UserProfile>('/profile/credentials', payload);
+  return res.data;
+}
+
 export async function getSearchHistory(params: any = {}): Promise<SearchHistoryResponse> {
   try {
     const res = await api.get<SearchHistoryResponse>(withNoCache('/profile/search-history'), {
@@ -473,6 +479,11 @@ export async function patchAdminUser(userId: string, payload: any): Promise<any>
   return res.data;
 }
 
+export async function resetAdminUserPassword(userId: string, payload: any): Promise<any> {
+  const res = await api.patch(`/admin/users/${userId}/password`, payload);
+  return res.data;
+}
+
 export async function getAdminSearches(params: any = {}): Promise<{ searches: SearchHistoryItem[]; count: number }> {
   try {
     const res = await api.get<{ searches: SearchHistoryItem[]; count: number }>(withNoCache('/admin/searches'), {
@@ -553,5 +564,34 @@ export async function cleanupDuplicates(): Promise<{
     deleted_count: number;
     deleted_documents: { document_id: string; document: string }[];
   }>('/admin/cleanup-duplicates');
+  return res.data;
+}
+
+export async function getSystemSettings(): Promise<SystemSettings> {
+  try {
+    const res = await api.get<SystemSettings>('/admin/settings');
+    return res.data;
+  } catch (error) {
+    console.warn("Get system settings API failed, returning local storage defaults.");
+    const savedModel = localStorage.getItem('docai_selected_model') || 'gemini-1.5-flash';
+    const savedTemp = parseFloat(localStorage.getItem('docai_model_temperature') || '0.2');
+    const savedSize = parseInt(localStorage.getItem('docai_chunk_size') || '1000');
+    const savedOverlap = parseInt(localStorage.getItem('docai_chunk_overlap') || '200');
+    return {
+      selected_model: savedModel,
+      temperature: savedTemp,
+      chunk_size: savedSize,
+      chunk_overlap: savedOverlap
+    };
+  }
+}
+
+export async function patchSystemSettings(payload: Partial<SystemSettings>): Promise<SystemSettings> {
+  const res = await api.patch<SystemSettings>('/admin/settings', payload);
+  // Also save to localStorage as a fallback sync
+  if (res.data.selected_model) localStorage.setItem('docai_selected_model', res.data.selected_model);
+  if (res.data.temperature !== undefined) localStorage.setItem('docai_model_temperature', res.data.temperature.toString());
+  if (res.data.chunk_size !== undefined) localStorage.setItem('docai_chunk_size', res.data.chunk_size.toString());
+  if (res.data.chunk_overlap !== undefined) localStorage.setItem('docai_chunk_overlap', res.data.chunk_overlap.toString());
   return res.data;
 }

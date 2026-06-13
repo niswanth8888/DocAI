@@ -1,30 +1,30 @@
-# Python
-backend/.venv/
-backend/__pycache__/
-backend/**/__pycache__/
-backend/*.pyc
-backend/**/*.pyc
+# Python backend
+trustkb_backend/.venv/
+trustkb_backend/__pycache__/
+trustkb_backend/**/__pycache__/
+trustkb_backend/*.pyc
+trustkb_backend/**/*.pyc
 
-# Node
+# Backend secrets/local runtime data
+trustkb_backend/.env
+trustkb_backend/uploads/
+trustkb_backend/data/uploads/
+trustkb_backend/data/documents.json
+trustkb_backend/data/chunks.json
+trustkb_backend/data/logs.json
+trustkb_backend/data/search_history.json
+trustkb_backend/data/reviews.json
+trustkb_backend/data/users.json
+trustkb_backend/data/system_settings.json
+
+# Frontend
 frontend/node_modules/
 frontend/dist/
-
-# Environment files / secrets
-.env
-.env.*
-backend/.env
 frontend/.env
 
-# Uploaded/generated local data
-backend/uploads/
-backend/data/uploads/
-backend/data/documents.json
-backend/data/chunks.json
-backend/data/logs.json
-backend/data/search_history.json
-backend/data/reviews.json
-
-# OS/editor
+# General
+.env
+.env.*
 .DS_Store
 Thumbs.db
 .vscode/

@@ -23,7 +23,8 @@ export function formatDate(dateStr: string): string {
  */
 export function formatPercent(score: number): string {
   if (score === undefined || score === null) return '0%';
-  return `${Math.round(score * 100)}%`;
+  const clamped = Math.max(0, Math.min(1, score));
+  return `${Math.round(clamped * 100)}%`;
 }
 
 /**
