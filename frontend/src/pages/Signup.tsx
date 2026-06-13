@@ -65,13 +65,22 @@ const Signup: React.FC = () => {
         designation: designation.trim(),
         title: designation.trim()
       });
-      navigate('/');
+      navigate('/login?registered=true');
     } catch (err: any) {
       console.error(err);
-      setError(
-        err.response?.data?.detail || 
-        'Registration failed. Please check details and try again.'
-      );
+      let errorMessage = 'Registration failed. Please check details and try again.';
+      if (err.response?.data?.detail) {
+        if (typeof err.response.data.detail === 'string') {
+          errorMessage = err.response.data.detail;
+        } else if (Array.isArray(err.response.data.detail)) {
+          errorMessage = err.response.data.detail.map((d: any) => d.msg || JSON.stringify(d)).join(', ');
+        } else {
+          errorMessage = JSON.stringify(err.response.data.detail);
+        }
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      setError(errorMessage);
     } finally {
       setSubmitting(false);
     }

@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Cpu, AlertCircle } from 'lucide-react';
+import { Cpu, AlertCircle, CheckCircle } from 'lucide-react';
 
 const Login: React.FC = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const expired = searchParams.get('expired');
+  const registered = searchParams.get('registered');
 
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -28,10 +29,19 @@ const Login: React.FC = () => {
       }
     } catch (err: any) {
       console.error(err);
-      setError(
-        err.response?.data?.detail || 
-        'Sign in failed. Please check your credentials and try again.'
-      );
+      let errorMessage = 'Sign in failed. Please check your credentials and try again.';
+      if (err.response?.data?.detail) {
+        if (typeof err.response.data.detail === 'string') {
+          errorMessage = err.response.data.detail;
+        } else if (Array.isArray(err.response.data.detail)) {
+          errorMessage = err.response.data.detail.map((d: any) => d.msg || JSON.stringify(d)).join(', ');
+        } else {
+          errorMessage = JSON.stringify(err.response.data.detail);
+        }
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      setError(errorMessage);
     } finally {
       setSubmitting(false);
     }
@@ -53,6 +63,13 @@ const Login: React.FC = () => {
             Enterprise Document Intelligence
           </span>
         </div>
+
+        {registered && (
+          <div className="p-3 mb-5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 shrink-0 text-emerald-400" />
+            <span>Account created successfully. Please login.</span>
+          </div>
+        )}
 
         {expired && (
           <div className="p-3 mb-5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs flex items-center gap-2">

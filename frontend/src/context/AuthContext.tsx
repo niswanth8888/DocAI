@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { UserProfile } from '../types/api';
 import { 
   login as loginApi, 
-  adminLogin as adminLoginApi, 
   signup as signupApi, 
   getAuthMe
 } from '../api/client';
@@ -63,39 +62,81 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [refreshMe]);
 
   const login = async (payload: any) => {
+    localStorage.removeItem('docai_token');
+    localStorage.removeItem('docai_user');
+    setToken(null);
+    setUser(null);
+
     const data = await loginApi(payload);
     localStorage.setItem('docai_token', data.access_token);
     localStorage.setItem('docai_user', JSON.stringify(data.user));
     setToken(data.access_token);
     setUser(data.user);
     
-    if (data.user.role === 'admin') {
-      navigate('/admin/dashboard');
-    } else {
-      navigate('/');
+    let redirectPath = '/';
+    try {
+      const profile = await getAuthMe();
+      setUser(profile);
+      localStorage.setItem('docai_user', JSON.stringify(profile));
+      if (profile.role === 'admin') {
+        redirectPath = '/admin/dashboard';
+      }
+    } catch (error) {
+      console.error("Session verification failed after login:", error);
+      if (data.user.role === 'admin') {
+        redirectPath = '/admin/dashboard';
+      }
     }
+    
+    navigate(redirectPath);
     return data;
   };
 
   const adminLogin = async (payload: any) => {
-    const data = await adminLoginApi(payload);
+    localStorage.removeItem('docai_token');
+    localStorage.removeItem('docai_user');
+    setToken(null);
+    setUser(null);
+
+    const data = await loginApi({
+      identifier: payload.username,
+      password: payload.password
+    });
+
+    if (data.user.role !== 'admin') {
+      throw {
+        response: {
+          status: 403,
+          data: { detail: 'Administrative privileges required.' }
+        }
+      };
+    }
+
     localStorage.setItem('docai_token', data.access_token);
     localStorage.setItem('docai_user', JSON.stringify(data.user));
     setToken(data.access_token);
     setUser(data.user);
+    
+    try {
+      const profile = await getAuthMe();
+      setUser(profile);
+      localStorage.setItem('docai_user', JSON.stringify(profile));
+    } catch (error) {
+      console.error("Admin session verification failed:", error);
+    }
     
     navigate('/admin/dashboard');
     return data;
   };
 
   const signup = async (payload: any) => {
+    localStorage.removeItem('docai_token');
+    localStorage.removeItem('docai_user');
+    setToken(null);
+    setUser(null);
+
     const data = await signupApi(payload);
-    localStorage.setItem('docai_token', data.access_token);
-    localStorage.setItem('docai_user', JSON.stringify(data.user));
-    setToken(data.access_token);
-    setUser(data.user);
-    
-    navigate('/');
+    // Return data directly, redirect to login manually without setting auth state
     return data;
   };
 
@@ -104,6 +145,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('docai_user');
     setToken(null);
     setUser(null);
+    navigate('/login');
   };
 
   const role = user ? user.role : null;
